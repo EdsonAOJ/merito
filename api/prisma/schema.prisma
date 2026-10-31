@@ -1,0 +1,75 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WebhookEventType {
+  BALANCE_SNAPSHOT
+  DELTA_APPLIED
+  DELTA_REVERTED
+}
+
+enum WebhookEventStatus {
+  APPLIED
+  REJECTED
+}
+
+model WebhookEvent {
+  eventId             String              @id @map("event_id") @db.Uuid
+  type                WebhookEventType
+  status              WebhookEventStatus
+  occurredAt          DateTime            @map("occurred_at") @db.Timestamptz(3)
+  receivedAt          DateTime            @default(now()) @map("received_at") @db.Timestamptz(3)
+  reasonCode          String?             @map("reason_code") @db.VarChar(64)
+  appliedTransaction  BalanceTransaction? @relation("AppliedDeltaEvent")
+  reversedTransaction BalanceTransaction? @relation("ReversedDeltaEvent")
+  payload             Json
+
+  @@map("webhook_events")
+}
+
+model AccountBalance {
+  id                  String               @id @default(uuid()) @db.Uuid
+  accountId           String               @map("account_id") @db.VarChar(64)
+  resourceKey         String               @map("resource_key") @db.VarChar(64)
+  amount              Decimal              @db.Decimal(28, 8)
+  updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  balanceTransactions BalanceTransaction[]
+  snapshotVersion     Int                  @default(1) @map("snapshot_version")
+
+  @@unique([accountId, resourceKey])
+  @@map("account_balances")
+}
+
+model BalanceTransaction {
+  id            String   @id @default(uuid()) @db.Uuid
+  balanceId     String   @map("balance_id") @db.Uuid
+  transactionId String   @map("transaction_id") @db.VarChar(128)
+  amountDelta   Decimal  @map("amount_delta") @db.Decimal(28, 8)
+  effectiveDate DateTime @map("effective_date") @db.Date
+
+  appliedEventId  String  @unique @map("applied_event_id") @db.Uuid
+  reversedEventId String? @unique @map("reversed_event_id") @db.Uuid
+
+  reversedAt DateTime? @map("reversed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  balance AccountBalance @relation(fields: [balanceId], references: [id])
+
+  appliedEvent    WebhookEvent  @relation("AppliedDeltaEvent", fields: [appliedEventId], references: [eventId])
+  reversedEvent   WebhookEvent? @relation("ReversedDeltaEvent", fields: [reversedEventId], references: [eventId])
+  snapshotVersion Int           @map("snapshot_version")
+
+  @@unique([balanceId, transactionId])
+  @@map("balance_transactions")
+}
