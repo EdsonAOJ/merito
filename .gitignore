@@ -1,0 +1,19 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build and tests
+dist/
+coverage/
+*.tsbuildinfo
+
+# Generated Prisma Client
+api/src/generated/prisma/
+api/generated/prisma/
+
+# Logs
+*.log
