@@ -4,11 +4,11 @@ const accountId = z.string().min(1).max(64);
 const resourceKey = z.string().min(1).max(64);
 const transactionId = z.string().min(1).max(128);
 
-const decimal = z
+const decimalSchema = z
   .string()
-  .regex(/^-?\d+(\.\d{1,8})?$/, 'Invalid decimal format');
+  .regex(/^-?\d{1,20}(\.\d{1,8})?$/, 'Invalid decimal precision');
 
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
+const dateOnly = z.iso.date();
 
 const envelope = {
   event_id: z.uuidv4(),
@@ -22,7 +22,7 @@ const snapshot = z.strictObject({
     account_id: accountId,
     resource_key: resourceKey,
     reference_date: dateOnly,
-    amount: decimal,
+    amount: decimalSchema,
   }),
 });
 
@@ -33,7 +33,7 @@ const deltaApplied = z.strictObject({
     account_id: accountId,
     resource_key: resourceKey,
     transaction_id: transactionId,
-    amount_delta: decimal,
+    amount_delta: decimalSchema,
     effective_date: dateOnly,
   }),
 });

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, PipeTransform } from '@nestjs/common';
 
 import {
-  WebhookEventDto,
+  type WebhookEventDto,
   webhookEventSchema,
 } from '../dto/webhook-event.schema';
 

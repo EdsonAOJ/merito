@@ -1,5 +1,7 @@
 import {
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -28,12 +30,12 @@ export class WebhooksService {
 
     if (existingEvent) {
       this.validateDuplicate(existingEvent, event);
-
       return this.duplicateResponse(existingEvent);
     }
 
-    if (!isWithinReplayWindow(new Date(event.occurred_at)))
+    if (!isWithinReplayWindow(new Date(event.occurred_at))) {
       throw new UnauthorizedException('Event outside replay window');
+    }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -85,50 +87,66 @@ export class WebhooksService {
 
         return result;
       } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2034' &&
-          attempt < 2
-        )
-          continue;
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002'
-        ) {
+        if (!(err instanceof Prisma.PrismaClientKnownRequestError)) {
+          throw err;
+        }
+
+        if (err.code === 'P2002') {
           const duplicateEvent = await this.prisma.webhookEvent.findUnique({
             where: {
               eventId: event.event_id,
             },
           });
+
           if (duplicateEvent) {
             this.validateDuplicate(duplicateEvent, event);
-
             return this.duplicateResponse(duplicateEvent);
           }
+
+          if (attempt < 2) {
+            continue;
+          }
+        }
+
+        if (err.code === 'P2034') {
+          if (attempt < 2) {
+            continue;
+          }
+
+          throw new HttpException(
+            'Transaction temporarily unavailable. Retry later.',
+            HttpStatus.SERVICE_UNAVAILABLE,
+          );
         }
 
         throw err;
       }
     }
 
-    throw new Error('Webhook processing failed after retries');
+    throw new HttpException(
+      'Transaction temporarily unavailable. Retry later.',
+      HttpStatus.SERVICE_UNAVAILABLE,
+    );
   }
 
   private validateDuplicate(
     existingEvent: WebhookEvent,
     event: WebhookEventDto,
   ): void {
-    if (existingEvent.type !== event.type)
+    if (existingEvent.type !== event.type) {
       throw new ConflictException('Event type mismatch');
+    }
 
-    if (!isDeepStrictEqual(existingEvent.payload, event.payload))
+    if (!isDeepStrictEqual(existingEvent.payload, event.payload)) {
       throw new ConflictException('Event payload mismatch');
+    }
 
     if (
       existingEvent.occurredAt.getTime() !==
       new Date(event.occurred_at).getTime()
-    )
+    ) {
       throw new ConflictException('Event date mismatch');
+    }
   }
 
   private duplicateResponse(existingEvent: WebhookEvent) {

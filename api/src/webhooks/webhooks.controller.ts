@@ -15,7 +15,7 @@ import { WebhooksService } from './webhooks.service';
 
 @Controller('webhooks')
 export class WebhooksController {
-  constructor(private webhooksService: WebhooksService) {}
+  constructor(private readonly webhooksService: WebhooksService) {}
 
   @UseGuards(WebhookSignatureGuard)
   @UsePipes(WebhookValidationPipe)

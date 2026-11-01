@@ -3,11 +3,38 @@ import { Prisma } from '../generated/prisma/client';
 import type { WebhookEventDto } from '../webhooks/dto/webhook-event.schema';
 import { BalanceBusinessException } from './errors/balance-business.exception';
 import { BalanceReasonCode } from './errors/balance-reason-code';
+import { PrismaService } from '../prisma/prisma.service';
 
 type TransactionClient = Prisma.TransactionClient;
 
 @Injectable()
 export class BalanceService {
+  private readonly maxBalance = new Prisma.Decimal(
+    '99999999999999999999.99999999',
+  );
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async getBalance(accountId: string, resourceKey: string) {
+    const balance = await this.prisma.accountBalance.findUnique({
+      where: {
+        accountId_resourceKey: {
+          accountId,
+          resourceKey,
+        },
+      },
+    });
+
+    if (!balance)
+      throw new BalanceBusinessException(
+        BalanceReasonCode.BALANCE_NOT_FOUND,
+        'Balance not found',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+
+    return balance;
+  }
+
   async apply(tx: TransactionClient, event: WebhookEventDto): Promise<void> {
     switch (event.type) {
       case 'BALANCE_SNAPSHOT':
@@ -18,9 +45,9 @@ export class BalanceService {
         await this.applyDelta(tx, event);
         return;
 
-      // case 'DELTA_REVERTED':
-      //   await this.revertDelta(tx, event);
-      //   return;
+      case 'DELTA_REVERTED':
+        await this.revertDelta(tx, event);
+        return;
 
       default:
         throw new Error('Tipo não implementado');
@@ -47,18 +74,6 @@ export class BalanceService {
         HttpStatus.UNPROCESSABLE_ENTITY,
       );
 
-    const currentAmount = existingBalance.amount;
-    const delta = new Prisma.Decimal(event.payload.amount_delta);
-
-    const newAmount = currentAmount.plus(delta);
-
-    if (newAmount.isNegative())
-      throw new BalanceBusinessException(
-        BalanceReasonCode.INSUFFICIENT_BALANCE,
-        'Insufficient balance',
-        HttpStatus.UNPROCESSABLE_ENTITY,
-      );
-
     const existingTransaction = await tx.balanceTransaction.findUnique({
       where: {
         balanceId_transactionId: {
@@ -73,6 +88,26 @@ export class BalanceService {
         BalanceReasonCode.DUPLICATE_TRANSACTION,
         'Transaction already exists',
         HttpStatus.CONFLICT,
+      );
+
+    const currentAmount = existingBalance.amount;
+    const delta = new Prisma.Decimal(event.payload.amount_delta);
+
+    const newAmount = currentAmount.plus(delta);
+
+    if (newAmount.greaterThan(this.maxBalance)) {
+      throw new BalanceBusinessException(
+        BalanceReasonCode.BALANCE_LIMIT_EXCEEDED,
+        'Balance exceeds database limit',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    if (newAmount.isNegative())
+      throw new BalanceBusinessException(
+        BalanceReasonCode.INSUFFICIENT_BALANCE,
+        'Insufficient balance',
+        HttpStatus.UNPROCESSABLE_ENTITY,
       );
 
     await tx.balanceTransaction.create({
@@ -154,6 +189,101 @@ export class BalanceService {
         amount,
         snapshotVersion: { increment: 1 },
         referenceDate,
+      },
+    });
+  }
+
+  private async revertDelta(
+    tx: TransactionClient,
+    event: Extract<WebhookEventDto, { type: 'DELTA_REVERTED' }>,
+  ) {
+    const existingBalance = await tx.accountBalance.findUnique({
+      where: {
+        accountId_resourceKey: {
+          accountId: event.payload.account_id,
+          resourceKey: event.payload.resource_key,
+        },
+      },
+    });
+
+    if (!existingBalance)
+      throw new BalanceBusinessException(
+        BalanceReasonCode.BALANCE_NOT_FOUND,
+        'Balance not found',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+
+    const existingTransaction = await tx.balanceTransaction.findUnique({
+      where: {
+        balanceId_transactionId: {
+          balanceId: existingBalance.id,
+          transactionId: event.payload.transaction_id,
+        },
+      },
+    });
+
+    if (!existingTransaction)
+      throw new BalanceBusinessException(
+        BalanceReasonCode.TRANSACTION_NOT_FOUND,
+        'Transaction not found',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+
+    if (existingTransaction.reversedAt)
+      throw new BalanceBusinessException(
+        BalanceReasonCode.TRANSACTION_ALREADY_REVERSED,
+        'Transaction already done',
+        HttpStatus.CONFLICT,
+      );
+
+    if (existingTransaction.snapshotVersion !== existingBalance.snapshotVersion)
+      throw new BalanceBusinessException(
+        BalanceReasonCode.SNAPSHOT_VERSION_MISMATCH,
+        'Transaction belongs to a different snapshot version',
+        HttpStatus.CONFLICT,
+      );
+
+    const currentAmount = existingBalance.amount;
+    const delta = existingTransaction.amountDelta.negated();
+
+    const newAmount = currentAmount.plus(delta);
+
+    if (newAmount.greaterThan(this.maxBalance)) {
+      throw new BalanceBusinessException(
+        BalanceReasonCode.BALANCE_LIMIT_EXCEEDED,
+        'Balance exceeds database limit',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    if (newAmount.isNegative())
+      throw new BalanceBusinessException(
+        BalanceReasonCode.INSUFFICIENT_BALANCE,
+        'Insufficient balance',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+
+    await tx.balanceTransaction.update({
+      where: {
+        balanceId_transactionId: {
+          balanceId: existingBalance.id,
+          transactionId: event.payload.transaction_id,
+        },
+      },
+      data: {
+        reversedEventId: event.event_id,
+        reversedAt: new Date(),
+      },
+    });
+
+    await tx.accountBalance.update({
+      where: {
+        id: existingBalance.id,
+      },
+      data: {
+        amount: {
+          increment: delta,
+        },
       },
     });
   }
