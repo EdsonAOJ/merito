@@ -74,6 +74,16 @@ Consulta o saldo atual de uma conta:
 GET /balances?account_id=ACC-1001&resource_key=BRL
 ```
 
+### `GET /accounts/:accountId/balances`
+
+Retorna todos os saldos de uma conta.
+
+Exemplo:
+
+GET /accounts/ACC-1001/balances
+
+A resposta é uma lista com `resource_key`, `amount` e `updated_at`.
+
 ### `GET /health/ready`
 
 Verifica a disponibilidade da aplicação.
