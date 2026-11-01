@@ -2107,7 +2107,7 @@ describe('Webhooks E2E', () => {
         });
 
       expect(responseA.status).toBe(400);
-      expect(responseA.body.message).toBe('Invalid balance query parameters');
+      expect(responseA.body.message).toBe('Invalid format');
 
       const responseB = await request(app.getHttpServer())
         .get('/balances')
