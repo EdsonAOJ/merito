@@ -22,6 +22,10 @@ export class WebhooksService {
   ) {}
 
   async receive(event: WebhookEventDto) {
+    if (!isWithinReplayWindow(new Date(event.occurred_at))) {
+      throw new UnauthorizedException('Event outside replay window');
+    }
+
     const existingEvent = await this.prisma.webhookEvent.findUnique({
       where: {
         eventId: event.event_id,
@@ -31,10 +35,6 @@ export class WebhooksService {
     if (existingEvent) {
       this.validateDuplicate(existingEvent, event);
       return this.duplicateResponse(existingEvent);
-    }
-
-    if (!isWithinReplayWindow(new Date(event.occurred_at))) {
-      throw new UnauthorizedException('Event outside replay window');
     }
 
     for (let attempt = 0; attempt < 3; attempt++) {

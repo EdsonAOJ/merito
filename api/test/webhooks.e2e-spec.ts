@@ -123,6 +123,76 @@ describe('Webhooks E2E', () => {
 
       expect(response.status).toBe(401);
     });
+
+    it('should reject an event outside the replay window', async () => {
+      const event = {
+        ...validEvent,
+        event_id: randomUUID(),
+        occurred_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        payload: {
+          ...validEvent.payload,
+          account_id: `E2E-${randomUUID()}`,
+        },
+      };
+
+      const rawBody = JSON.stringify(event);
+
+      const response = await request(app.getHttpServer())
+        .post('/webhooks/events')
+        .set('Content-Type', 'application/json')
+        .set('X-Webhook-Signature', signBody(rawBody))
+        .send(rawBody);
+
+      expect(response.status).toBe(401);
+
+      const savedEvent = await prismaService.webhookEvent.findUnique({
+        where: { eventId: event.event_id },
+      });
+
+      expect(savedEvent).toBeNull();
+    });
+
+    it('should reject a duplicate event outside the replay window', async () => {
+      const event = {
+        ...validEvent,
+        event_id: randomUUID(),
+        occurred_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+        payload: {
+          ...validEvent.payload,
+          account_id: `E2E-${randomUUID()}`,
+        },
+      };
+
+      createdEventIds.push(event.event_id);
+
+      await prismaService.webhookEvent.create({
+        data: {
+          eventId: event.event_id,
+          type: 'DELTA_APPLIED',
+          status: WebhookEventStatus.REJECTED,
+          occurredAt: new Date(event.occurred_at),
+          payload: event.payload,
+          reasonCode: BalanceReasonCode.BALANCE_NOT_FOUND,
+        },
+      });
+
+      const rawBody = JSON.stringify(event);
+
+      const response = await request(app.getHttpServer())
+        .post('/webhooks/events')
+        .set('Content-Type', 'application/json')
+        .set('X-Webhook-Signature', signBody(rawBody))
+        .send(rawBody);
+
+      expect(response.status).toBe(401);
+
+      const savedEvent = await prismaService.webhookEvent.findUnique({
+        where: { eventId: event.event_id },
+      });
+
+      expect(savedEvent?.status).toBe(WebhookEventStatus.REJECTED);
+      expect(savedEvent?.reasonCode).toBe(BalanceReasonCode.BALANCE_NOT_FOUND);
+    });
   });
 
   describe('Aplicação de deltas', () => {
@@ -2064,6 +2134,51 @@ describe('Webhooks E2E', () => {
         });
 
       expect(responseD.status).toBe(400);
+    });
+
+    it('should return all balances for an account', async () => {
+      const accountId = `E2E-${randomUUID()}`;
+
+      const balanceA = await prismaService.accountBalance.create({
+        data: {
+          accountId,
+          resourceKey: 'BRL',
+          amount: '100.00',
+          snapshotVersion: 1,
+          referenceDate: new Date('2026-10-31T00:00:00.000Z'),
+        },
+      });
+
+      const balanceB = await prismaService.accountBalance.create({
+        data: {
+          accountId,
+          resourceKey: 'USD',
+          amount: '50.00',
+          snapshotVersion: 1,
+          referenceDate: new Date('2026-10-31T00:00:00.000Z'),
+        },
+      });
+
+      createdBalanceIds.push(balanceA.id, balanceB.id);
+
+      const response = await request(app.getHttpServer()).get(
+        `/accounts/${accountId}/balances`,
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(2);
+
+      expect(response.body[0].resource_key).toBe('BRL');
+      expect(response.body[0].amount).toBe('100');
+      expect(response.body[0].updated_at).toBe(
+        balanceA.updatedAt.toISOString(),
+      );
+
+      expect(response.body[1].resource_key).toBe('USD');
+      expect(response.body[1].amount).toBe('50');
+      expect(response.body[1].updated_at).toBe(
+        balanceB.updatedAt.toISOString(),
+      );
     });
   });
 
