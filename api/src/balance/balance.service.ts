@@ -15,7 +15,10 @@ export class BalanceService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async getBalance(accountId: string, resourceKey: string) {
+  async getBalanceByAccountIdAndResourceKey(
+    accountId: string,
+    resourceKey: string,
+  ) {
     const balance = await this.prisma.accountBalance.findUnique({
       where: {
         accountId_resourceKey: {
@@ -35,6 +38,18 @@ export class BalanceService {
     return balance;
   }
 
+  async getBalancesByAccountId(accountId: string) {
+    const balances = await this.prisma.accountBalance.findMany({
+      where: { accountId },
+      orderBy: { resourceKey: 'asc' },
+    });
+
+    return balances.map((balance) => ({
+      resource_key: balance.resourceKey,
+      amount: balance.amount.toString(),
+      updated_at: balance.updatedAt.toISOString(),
+    }));
+  }
   async apply(tx: TransactionClient, event: WebhookEventDto): Promise<void> {
     switch (event.type) {
       case 'BALANCE_SNAPSHOT':

@@ -14,7 +14,7 @@ export class BalanceController {
       throw new BadRequestException('Invalid balance query parameters');
     }
 
-    return this.balanceService.getBalance(
+    return this.balanceService.getBalanceByAccountIdAndResourceKey(
       result.data.account_id,
       result.data.resource_key,
     );
