@@ -4,13 +4,16 @@ import request from 'supertest';
 import { createHmac } from 'node:crypto';
 
 import { WebhooksModule } from '../src/webhooks/webhooks.module';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 describe('Webhooks E2E', () => {
   let app: INestApplication;
+  let prismaService: PrismaService;
+
   const validEvent = {
     event_id: '550e8400-e29b-41d4-a716-446655440000',
     type: 'DELTA_APPLIED',
-    occurred_at: '2026-10-31T18:00:00Z',
+    occurred_at: new Date().toISOString(),
     payload: {
       account_id: 'ACC-1001',
       resource_key: 'BRL',
@@ -30,6 +33,8 @@ describe('Webhooks E2E', () => {
     app = moduleRef.createNestApplication({
       rawBody: true,
     });
+
+    prismaService = app.get(PrismaService);
 
     await app.init();
   });
@@ -87,5 +92,7 @@ describe('Webhooks E2E', () => {
       .send(rawBody);
 
     expect(response.status).toBe(202);
+    expect(response.body.status).toBe('rejected');
+    expect(response.body.reason_code).toBe('BALANCE_NOT_FOUND');
   });
 });

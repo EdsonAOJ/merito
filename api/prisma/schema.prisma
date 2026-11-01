@@ -46,6 +46,7 @@ model AccountBalance {
   updatedAt           DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
   balanceTransactions BalanceTransaction[]
   snapshotVersion     Int                  @default(1) @map("snapshot_version")
+  referenceDate       DateTime?            @map("reference_date") @db.Date
 
   @@unique([accountId, resourceKey])
   @@map("account_balances")

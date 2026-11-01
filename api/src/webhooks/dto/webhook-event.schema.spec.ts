@@ -4,7 +4,7 @@ describe('Webhook event schema', () => {
   const validEvent = {
     event_id: '550e8400-e29b-41d4-a716-446655440000',
     type: 'DELTA_APPLIED',
-    occurred_at: '2026-10-31T18:00:00Z',
+    occurred_at: new Date().toISOString(),
     payload: {
       account_id: 'ACC-1001',
       resource_key: 'BRL',
