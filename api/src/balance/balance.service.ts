@@ -65,7 +65,7 @@ export class BalanceService {
         return;
 
       default:
-        throw new Error('Tipo não implementado');
+        throw new Error('Unsupported event type');
     }
   }
 

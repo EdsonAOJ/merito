@@ -17,17 +17,20 @@ export class WebhookSignatureGuard implements CanActivate {
       .switchToHttp()
       .getRequest<RawBodyRequest<Request>>();
 
-    const webhookSecret = process.env.WEBHOOK_SECRET ?? '';
+    const webhookSecret = process.env.WEBHOOK_SECRET;
     const signature = request.get('X-Webhook-Signature');
 
-    if (!webhookSecret)
-      throw new InternalServerErrorException('Invalid credencial');
+    if (!webhookSecret) {
+      throw new InternalServerErrorException('Internal server error');
+    }
 
-    if (!request.rawBody || !signature)
-      throw new UnauthorizedException('Invalid payload');
-
-    if (!verifyWebhookSignature(request.rawBody, signature, webhookSecret))
+    if (!request.rawBody || !signature) {
       throw new UnauthorizedException('Unauthorized');
+    }
+
+    if (!verifyWebhookSignature(request.rawBody, signature, webhookSecret)) {
+      throw new UnauthorizedException('Unauthorized');
+    }
 
     return true;
   }

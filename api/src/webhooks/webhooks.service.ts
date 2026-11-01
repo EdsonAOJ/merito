@@ -23,7 +23,7 @@ export class WebhooksService {
 
   async receive(event: WebhookEventDto) {
     if (!isWithinReplayWindow(new Date(event.occurred_at))) {
-      throw new UnauthorizedException('Event outside replay window');
+      throw new UnauthorizedException('Unauthorized');
     }
 
     const existingEvent = await this.prisma.webhookEvent.findUnique({
@@ -134,18 +134,18 @@ export class WebhooksService {
     event: WebhookEventDto,
   ): void {
     if (existingEvent.type !== event.type) {
-      throw new ConflictException('Event type mismatch');
+      throw new ConflictException('Event conflict');
     }
 
     if (!isDeepStrictEqual(existingEvent.payload, event.payload)) {
-      throw new ConflictException('Event payload mismatch');
+      throw new ConflictException('Event conflict');
     }
 
     if (
       existingEvent.occurredAt.getTime() !==
       new Date(event.occurred_at).getTime()
     ) {
-      throw new ConflictException('Event date mismatch');
+      throw new ConflictException('Event conflict');
     }
   }
 

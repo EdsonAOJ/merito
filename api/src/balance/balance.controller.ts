@@ -11,7 +11,7 @@ export class BalanceController {
     const result = getBalanceQuerySchema.safeParse(query);
 
     if (!result.success) {
-      throw new BadRequestException('Invalid balance query parameters');
+      throw new BadRequestException('Invalid format');
     }
 
     return this.balanceService.getBalanceByAccountIdAndResourceKey(
