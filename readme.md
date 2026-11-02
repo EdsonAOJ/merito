@@ -1,49 +1,75 @@
 # Mérito — Teste Fullstack
 
-Aplicação desenvolvida com NestJS e React para receber eventos de saldo via webhook, consultar saldos consolidados e realizar reconciliação de arquivos CSV.
+Projeto desenvolvido com NestJS e React para processar eventos financeiros via webhook, consultar saldos de contas e reconciliar valores a partir de arquivos CSV.
 
 ## Tecnologias
 
-- Node.js e TypeScript
-- NestJS
-- React, Vite e Chakra UI
+**Backend**
+
+- Node.js, TypeScript e NestJS
 - PostgreSQL e Prisma
-- Docker Compose
 - Jest e Supertest
 
-## Como executar
+**Frontend**
 
-É necessário ter o Docker Desktop instalado e em execução.
+- React, TypeScript e Vite
+- Chakra UI
 
-Na raiz do projeto, copie o `.env.example` para `.env` e configure as variáveis de ambiente.
+**Ambiente**
 
-As principais variáveis são:
+- Docker Compose
 
-- `DATABASE_URL`: conexão com o PostgreSQL.
-- `POSTGRES_PASSWORD`: senha do banco local.
-- `WEBHOOK_SECRET`: segredo para validar a assinatura dos webhooks.
-- `RECONCILIATION_ADMIN_KEY`: chave utilizada nos endpoints administrativos de reconciliação.
+## Executando o projeto
 
-Depois execute:
+É necessário ter Docker e Docker Compose instalados.
+
+Primeiro, copie o arquivo `.env.example` para `.env`:
+
+```bash
+cp .env.example .env
+```
+
+No Windows, usando PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Confira as variáveis de ambiente antes de iniciar:
+
+```dotenv
+PORT=3000
+POSTGRES_PASSWORD=merito-local
+DATABASE_URL=postgresql://merito:merito-local@postgres:5432/merito_db?schema=public
+WEBHOOK_SECRET=WEBHOOK_SECRET_123
+RECONCILIATION_ADMIN_KEY=RECONCILIATION_ADMIN_KEY_123
+```
+
+Esses valores são apenas para execução local.
+
+Na raiz do projeto, execute:
 
 ```bash
 docker compose up -d --build
 ```
 
-O Docker inicia o PostgreSQL, a API e o frontend. O Prisma Client é gerado e as migrations são aplicadas automaticamente durante a inicialização da API.
+O Compose inicia o banco, a API e o frontend. A API aplica as migrations do Prisma na inicialização.
 
-- Frontend: http://localhost:5173
-- API: http://localhost:3000
-- Health check: http://localhost:3000/health/ready
+Depois de iniciar, os serviços estarão disponíveis em:
+
+| Serviço      | Endereço                           |
+| ------------ | ---------------------------------- |
+| Frontend     | http://localhost:5173              |
+| API          | http://localhost:3000              |
+| Health check | http://localhost:3000/health/ready |
 
 Para acompanhar os logs:
 
 ```bash
 docker compose logs -f api
-docker compose logs -f web
 ```
 
-Para parar os contêineres:
+Para parar o ambiente:
 
 ```bash
 docker compose down
@@ -51,17 +77,60 @@ docker compose down
 
 ## Funcionalidades
 
+### Processamento de webhooks
+
+A API recebe três tipos de evento:
+
+- `BALANCE_SNAPSHOT`: define o saldo de uma conta para um recurso.
+- `DELTA_APPLIED`: adiciona ou desconta um valor do saldo.
+- `DELTA_REVERTED`: reverte uma movimentação já aplicada.
+
+Os eventos são validados antes do processamento. A assinatura é conferida usando HMAC-SHA256 sobre o corpo original da requisição.
+
+Também são tratados eventos duplicados, operações que deixariam o saldo negativo, reversões inválidas e snapshots antigos.
+
+O processamento utiliza transações no PostgreSQL com isolamento `Serializable` e tentativas de repetição em caso de conflito de serialização.
+
+### Consulta de saldos
+
+Os saldos são armazenados por conta e recurso.
+
+O frontend permite consultar uma conta pelo identificador e visualizar seus saldos atuais.
+
+### Histórico de eventos
+
+A aplicação apresenta os últimos eventos recebidos, mostrando o tipo, o status, a data e o motivo quando houver rejeição.
+
+### Reconciliação CSV
+
+É possível importar um CSV para comparar seus valores com os saldos armazenados no banco.
+
+O arquivo deve seguir este formato:
+
+```csv
+account_id,resource_key,reference_date,amount
+ACC-1001,BRL,2026-11-02,100.00000000
+ACC-1001,POINTS,2026-11-02,250.00000000
+```
+
+A comparação retorna:
+
+- `MATCH`: o valor informado corresponde ao saldo encontrado.
+- `MISMATCH`: os valores são diferentes ou não existe saldo para a conta e o recurso.
+
+São aceitos até 100 registros por importação, com limite de 64 KB.
+
+A reconciliação consulta os saldos atuais, não reconstrói o saldo histórico da data informada no CSV. O resultado fica registrado no banco, mas a importação não altera o saldo oficial.
+
+Para tratar uma divergência, o operador deve conferir o arquivo e o histórico de eventos antes de realizar qualquer correção pelos mecanismos normais de movimentação.
+
+## Endpoints
+
 ### Webhooks
 
-`POST /webhooks/events`
+**POST `/webhooks/events`**
 
-Recebe três tipos de evento:
-
-- `BALANCE_SNAPSHOT`: define ou redefine o saldo oficial.
-- `DELTA_APPLIED`: adiciona ou desconta um valor.
-- `DELTA_REVERTED`: reverte uma movimentação anterior.
-
-As requisições precisam enviar o header `X-Webhook-Signature` com o HMAC-SHA256 do corpo original, no formato `sha256=<assinatura>`, utilizando `WEBHOOK_SECRET`.
+Recebe e processa um evento.
 
 Exemplo de snapshot:
 
@@ -79,13 +148,25 @@ Exemplo de snapshot:
 }
 ```
 
-Para testar, atualize `occurred_at` para o horário UTC atual e gere a assinatura correspondente. Eventos fora da janela de ±5 minutos são recusados, inclusive eventos duplicados.
+É obrigatório enviar o header `X-Webhook-Signature` no formato:
 
-### Consulta de saldos
+```text
+sha256=<assinatura>
+```
 
-`GET /accounts/:accountId/balances`
+A assinatura é gerada com o segredo definido em `WEBHOOK_SECRET`.
 
-Retorna os saldos de uma conta com `resource_key`, `amount` e `updated_at`.
+O campo `occurred_at` precisa estar dentro da janela de cinco minutos em relação ao horário do servidor. Para testar o exemplo, substitua a data pelo horário UTC atual e gere novamente a assinatura do corpo enviado.
+
+**GET `/webhooks/events`**
+
+Retorna os últimos 20 eventos registrados.
+
+### Saldos
+
+**GET `/accounts/:accountId/balances`**
+
+Retorna todos os saldos de uma conta.
 
 Exemplo:
 
@@ -93,65 +174,39 @@ Exemplo:
 GET /accounts/ACC-1001/balances
 ```
 
-Também existe a consulta por recurso:
+A resposta contém `resource_key`, `amount` e `updated_at`.
 
-```http
-GET /balances?account_id=ACC-1001&resource_key=BRL
-```
+**GET `/balances?account_id=ACC-1001&resource_key=BRL`**
 
-### Histórico de eventos
+Consulta o saldo de um recurso específico.
 
-`GET /webhooks/events`
+### Reconciliação
 
-Retorna os últimos 20 eventos persistidos, incluindo tipo, status, motivo de rejeição e datas.
+**POST `/reconciliations/import-csv`**
 
-O histórico registra eventos aplicados e rejeitados. Requisições duplicadas são identificadas pela idempotência, mas não criam novos registros de eventos.
+Importa um CSV e compara os valores com os saldos atuais.
 
-### Reconciliação CSV
+**POST `/reconciliations/import`**
 
-`POST /reconciliations/import-csv`
+Recebe os registros de reconciliação em JSON.
 
-Permite comparar um arquivo CSV com os saldos atuais armazenados no banco.
+**GET `/reconciliations`**
 
-Formato esperado:
+Consulta as últimas reconciliações registradas.
 
-```csv
-account_id,resource_key,reference_date,amount
-ACC-1001,BRL,2026-11-02,100.00000000
-ACC-1001,POINTS,2026-11-02,250.00000000
-```
+Os endpoints de reconciliação exigem o header `X-Admin-Key`, com o valor configurado em `RECONCILIATION_ADMIN_KEY`.
 
-O resultado pode ser:
+No ambiente local, o proxy do Vite encaminha essa chave nas importações CSV realizadas pelo frontend. Esse comportamento existe apenas para facilitar a execução do teste; não é um mecanismo de autenticação adequado para produção.
 
-- `MATCH`: o valor do CSV corresponde ao saldo armazenado.
-- `MISMATCH`: existe divergência ou o saldo não foi encontrado.
+### Health check
 
-A importação aceita até 100 registros e possui limite de 64 KB.
+**GET `/health/ready`**
 
-**O CSV não altera os saldos oficiais.** Os valores calculados pelos webhooks continuam sendo a fonte operacional. Divergências ficam registradas para investigação e eventual correção por um operador.
-
-A comparação utiliza o saldo atual no momento da importação. Não é realizada uma reconstrução histórica do saldo para a data de referência.
-
-Os endpoints administrativos são protegidos por `X-Admin-Key`. No ambiente Docker local, o proxy de desenvolvimento do Vite encaminha a chave configurada no servidor para facilitar a demonstração do upload. Esse mecanismo não deve ser exposto publicamente e não substitui autenticação de produção.
-
-Também estão disponíveis:
-
-- `POST /reconciliations/import`: importação de registros JSON.
-- `GET /reconciliations`: consulta das últimas reconciliações.
-
-### Interface web
-
-O frontend possui três telas:
-
-- **Saldos:** consulta por identificador da conta.
-- **Eventos:** histórico dos webhooks recebidos.
-- **Reconciliação:** seleção de arquivo CSV e visualização dos resultados.
-
-As telas possuem tratamento de carregamento, ausência de dados e erros de requisição.
+Verifica a disponibilidade da API.
 
 ## Testes
 
-Com os contêineres em execução:
+Com os contêineres em execução, os testes podem ser executados diretamente pelo Docker.
 
 Testes unitários:
 
@@ -159,59 +214,49 @@ Testes unitários:
 docker compose exec api npm run test -- --runInBand
 ```
 
-Testes E2E:
+Testes de integração (E2E):
 
 ```bash
 docker compose exec api npm run test:e2e -- --runInBand
 ```
 
-Build e lint da API:
+Para verificar build e lint:
 
 ```bash
 docker compose exec api npm run build
 docker compose exec api npm run lint
-```
-
-Build e lint do frontend:
-
-```bash
 docker compose exec web npm run build
 docker compose exec web npm run lint
 ```
 
-### Casos obrigatórios cobertos
+Na última execução, passaram 23 testes unitários e 57 testes E2E.
 
-- [x] Idempotência do mesmo `event_id`.
-- [x] Snapshot seguido de delta.
-- [x] Rejeição de operação que deixaria o saldo negativo.
-- [x] Reversão de delta aplicado.
-- [x] Delta sem snapshot prévio.
-- [x] Assinatura HMAC inválida.
-- [x] Rejeição de evento fora da janela anti-replay.
-- [x] Reversão sem transação anterior.
+Os testes cobrem os principais cenários de processamento: idempotência, snapshots, aplicação e reversão de deltas, saldo insuficiente, assinatura inválida, anti-replay e operações concorrentes.
 
-Também foram implementados testes de concorrência, validação, duplicidade, importação CSV, autenticação administrativa, reconciliação e atomicidade.
+Também há testes para importação CSV, validação dos arquivos, controle de acesso e rollback de transações.
 
-Última execução validada: 23 testes unitários e 57 testes E2E.
+## Decisões técnicas
 
-## Decisões de implementação
+Algumas decisões tomadas durante a implementação:
 
-- O saldo é mantido por `account_id` e `resource_key`.
-- Os eventos são persistidos para auditoria.
-- As operações financeiras utilizam transações PostgreSQL com isolamento `Serializable`.
-- Conflitos de serialização dos webhooks possuem tentativas de reprocessamento.
-- Valores financeiros utilizam `Decimal`, sem cálculos com ponto flutuante.
-- Snapshots antigos são rejeitados; snapshots da mesma data podem redefinir o saldo.
-- Reversões de transações de versões anteriores do snapshot são rejeitadas.
-- A reconciliação registra diferenças sem modificar os saldos.
-- O ambiente Docker é destinado ao desenvolvimento e à avaliação local, não à produção.
+- Utilização de `Decimal(28,8)` para armazenar valores financeiros.
+- Uso do `event_id` para garantir que o mesmo evento não seja aplicado duas vezes.
+- Persistência dos eventos para auditoria, incluindo o motivo de rejeição.
+- Transações `Serializable` para manter a consistência dos saldos.
+- Rejeição de snapshots mais antigos que o snapshot já registrado.
+- Controle de versão do saldo para impedir reversões de movimentações anteriores a um novo snapshot.
+- Separação entre processamento financeiro e reconciliação. O CSV serve apenas para comparar e registrar diferenças.
 
-## Bônus do enunciado
+O Docker Compose foi configurado para desenvolvimento e avaliação local.
 
-HMAC-SHA256 da frase `li o enunciado inteiro`, utilizando o segredo de teste `test-only-not-production`:
+## HMAC solicitado no enunciado
+
+Mensagem: `li o enunciado inteiro`
+
+Chave: `test-only-not-production`
+
+HMAC-SHA256:
 
 ```text
 sha256=6fab1e5859bef17dc0aecb7e493d4b8cdc533f620ddf2afe5400c8429a0dd448
 ```
-
-O valor acima utiliza exclusivamente o segredo demonstrativo fornecido no enunciado.
