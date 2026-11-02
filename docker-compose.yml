@@ -13,12 +13,30 @@ services:
       PORT: 3000
       DATABASE_URL: ${DATABASE_URL:-postgresql://merito:merito-local-only@postgres:5432/merito_db?schema=public}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-merito-webhook-demo-only-change-me}
+      RECONCILIATION_ADMIN_KEY: ${RECONCILIATION_ADMIN_KEY:?Configure RECONCILIATION_ADMIN_KEY}
     volumes:
       - ./api:/app
       - api_node_modules:/app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: merito-web
+    ports:
+      - "127.0.0.1:5173:5173"
+    environment:
+      RECONCILIATION_ADMIN_KEY: ${RECONCILIATION_ADMIN_KEY:?Configure RECONCILIATION_ADMIN_KEY}
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - api
+
+      
   postgres:
     image: postgres:17-alpine
     container_name: merito-postgres
@@ -36,6 +54,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
 volumes:
   postgres_data:
   api_node_modules:
+  web_node_modules:
