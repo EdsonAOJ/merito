@@ -129,6 +129,30 @@ export class WebhooksService {
     );
   }
 
+  async getRecentEvents() {
+    const events = await this.prisma.webhookEvent.findMany({
+      orderBy: { receivedAt: 'desc' },
+      take: 20,
+      select: {
+        eventId: true,
+        type: true,
+        status: true,
+        reasonCode: true,
+        occurredAt: true,
+        receivedAt: true,
+      },
+    });
+
+    return events.map((event) => ({
+      event_id: event.eventId,
+      type: event.type,
+      status: event.status.toLowerCase(),
+      reason_code: event.reasonCode,
+      occurred_at: event.occurredAt.toISOString(),
+      received_at: event.receivedAt.toISOString(),
+    }));
+  }
+
   private validateDuplicate(
     existingEvent: WebhookEvent,
     event: WebhookEventDto,

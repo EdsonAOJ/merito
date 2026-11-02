@@ -2705,4 +2705,24 @@ describe('Webhooks E2E', () => {
       );
     });
   });
+
+  describe('Consulta de eventos', () => {
+    it('deve retornar os eventos mais recentes sem expor o payload', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/webhooks/events')
+        .expect(200);
+
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body.length).toBeLessThanOrEqual(20);
+
+      for (const event of response.body) {
+        expect(event).toHaveProperty('event_id');
+        expect(event).toHaveProperty('type');
+        expect(event).toHaveProperty('status');
+        expect(event).toHaveProperty('received_at');
+
+        expect(event).not.toHaveProperty('payload');
+      }
+    });
+  });
 });

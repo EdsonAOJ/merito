@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
@@ -23,5 +24,10 @@ export class WebhooksController {
   @HttpCode(HttpStatus.ACCEPTED)
   receive(@Body() body: WebhookEventDto) {
     return this.webhooksService.receive(body);
+  }
+
+  @Get('events')
+  getRecentEvents() {
+    return this.webhooksService.getRecentEvents();
   }
 }

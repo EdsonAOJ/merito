@@ -74,3 +74,16 @@ model BalanceTransaction {
   @@unique([balanceId, transactionId])
   @@map("balance_transactions")
 }
+
+model BalanceReconciliation {
+  id             String   @id @default(uuid()) @db.Uuid
+  accountId      String   @db.VarChar(64)
+  resourceKey    String   @db.VarChar(64)
+  referenceDate  DateTime @db.Date
+  expectedAmount Decimal  @db.Decimal(28, 8)
+  actualAmount   Decimal? @db.Decimal(28, 8)
+  status         String   @db.VarChar(20)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([accountId, resourceKey])
+}
